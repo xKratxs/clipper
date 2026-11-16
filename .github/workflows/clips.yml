@@ -1,0 +1,104 @@
+name: Crear clips
+run-name: "Clips: ${{ inputs.url }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "Link de YouTube"
+        required: true
+        type: string
+      num_clips:
+        description: "Número de clips (1-30)"
+        default: "5"
+        type: string
+      min_len:
+        description: "Duración mínima de cada clip (segundos)"
+        default: "20"
+        type: string
+      max_len:
+        description: "Duración máxima de cada clip (segundos)"
+        default: "60"
+        type: string
+      formato:
+        description: "Formato"
+        type: choice
+        options: [vertical, horizontal]
+        default: vertical
+      modelo:
+        description: "Precisión de la transcripción"
+        type: choice
+        options: [base, small, medium, large-v3]
+        default: small
+      idioma:
+        description: "Idioma (es, en, pt...). Vacío = detectar"
+        default: ""
+        type: string
+      color:
+        description: "Color del resaltado (hex)"
+        default: "#FFE500"
+        type: string
+
+permissions:
+  contents: write   # para crear el Release donde se suben los clips
+
+jobs:
+  clips:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - uses: denoland/setup-deno@v2   # yt-dlp lo usa para resolver YouTube
+        with:
+          deno-version: v2.x
+
+      - name: Instalar ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg fonts-dejavu-core
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Cache del modelo de transcripción
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: whisper-${{ inputs.modelo }}
+
+      - name: Cookies de YouTube
+        env:
+          YT_COOKIES: ${{ secrets.YT_COOKIES }}
+        run: |
+          if [ -n "$YT_COOKIES" ]; then
+            printf '%s\n' "$YT_COOKIES" > "$RUNNER_TEMP/cookies.txt"
+            echo "YTDLP_COOKIES=$RUNNER_TEMP/cookies.txt" >> "$GITHUB_ENV"
+            echo "Cookies cargadas"
+          else
+            echo "Sin cookies (si YouTube bloquea, añade el secret YT_COOKIES)"
+          fi
+
+      - name: Crear clips
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SUB_FONT: DejaVu Sans
+          CLIP_URL: ${{ inputs.url }}
+          CLIP_NUM: ${{ inputs.num_clips }}
+          CLIP_MIN: ${{ inputs.min_len }}
+          CLIP_MAX: ${{ inputs.max_len }}
+          CLIP_FORMAT: ${{ inputs.formato }}
+          CLIP_MODEL: ${{ inputs.modelo }}
+          CLIP_LANG: ${{ inputs.idioma }}
+          CLIP_COLOR: ${{ inputs.color }}
+        run: python -m app.cli run
+
+      - name: Marcar como fallido
+        if: failure() || cancelled()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python -m app.cli fail "El proceso se detuvo antes de terminar."
