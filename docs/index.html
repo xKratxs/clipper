@@ -219,7 +219,8 @@ async function refresh() {
     const r = await fetch(`${API}/repos/${REPO}/releases?per_page=100`, { headers: headers(), cache: "no-cache" });
     if (r.status === 403 || r.status === 429) throw new Error("GitHub limita las consultas sin conectar. Espera unos minutos o conecta este dispositivo.");
     if (!r.ok) throw new Error(`GitHub respondió ${r.status}`);
-    jobs = (await r.json()).filter(x => x.tag_name.startsWith("clips-")).map(parseJob).filter(Boolean);
+    jobs = (await r.json()).filter(x => x.tag_name.startsWith("clips-")).map(parseJob).filter(Boolean)
+      .sort((a, b) => (b.started_at || 0) - (a.started_at || 0));
   } catch (err) {
     if (!box.querySelector(".job")) box.innerHTML = `<p class="empty">${esc(err.message)}</p>`;
     timer = setTimeout(refresh, 60000); return;
@@ -257,7 +258,7 @@ function upsertJob(job, position) {
   if (ref !== el) box.insertBefore(el, ref || null);
 
   el.querySelector("h3").textContent = job.title || job.url;
-  const when = new Date(job.created_at).toLocaleString();
+  const when = new Date(job.started_at ? job.started_at * 1000 : job.created_at).toLocaleString();
   el.querySelector(".job-meta").textContent =
     `${STATUS[job.status] || job.status} · ${job.clips.length}/${job.total} clips · ${when}` +
     (job.method ? ` · ${job.method === "claude" ? "elegidos con IA" : "elegidos con heurística"}` : "");
